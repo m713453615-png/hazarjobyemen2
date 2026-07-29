@@ -1,0 +1,25 @@
+{
+  "name": "Hazar-Job.com | هازار للوظائف",
+  "short_name": "Hazar Job",
+  "description": "منصة التوظيف الذكية للسوق اليمني",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#07111f",
+  "theme_color": "#071321",
+  "lang": "ar",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "./hazar-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./hazar-logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

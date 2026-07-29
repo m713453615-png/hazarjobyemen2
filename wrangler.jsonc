@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hazar-job",
+  "main": "cloudflare/worker.ts",
+  "compatibility_date": "2026-07-19",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hazar-job",
+      "database_id": "b678bcac-7baa-4c37-b0a6-4c5ba29bc45d"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "appId": "com.hazarjob.desktop.public",
+  "productName": "Hazar-Job.com",
+  "directories": {
+    "output": "release"
+  },
+  "electronDist": "release/electron-dist",
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "asar": true,
+  "win": {
+    "icon": "public/hazar-logo.png",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "artifactName": "HazarJob-Public-Setup-${version}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Hazar-Job.com"
+  }
+}

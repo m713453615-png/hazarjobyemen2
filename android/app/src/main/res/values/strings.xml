@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Hazar-Job.com</string>
+    <string name="title_activity_main">Hazar-Job.com</string>
+    <string name="package_name">com.hazarjob.app</string>
+    <string name="custom_url_scheme">com.hazarjob.app</string>
+</resources>

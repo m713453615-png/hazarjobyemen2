@@ -1,0 +1,91 @@
+{
+  "name": "hazar-job",
+  "private": true,
+  "version": "1.2.2",
+  "description": "منصة Hazar-Job.com للتوظيف في السوق اليمني",
+  "author": "Mahmoud Abdulrahman Mohammed Al-Nazari",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"tsx watch server/index.ts\"",
+    "dev:client": "vite",
+    "dev:server": "tsx watch server/index.ts",
+    "build": "npm run build:web",
+    "build:web": "tsc -b && vite build --mode public",
+    "build:owner": "tsc -b && vite build --mode owner",
+    "android:add": "cap add android",
+    "android:sync": "npm run build:web && cap sync android",
+    "android:open": "npm run android:sync && cap open android",
+    "android:run": "npm run android:sync && cap run android",
+    "windows:run": "npm run build:owner && electron .",
+    "windows:build": "npm run build:owner && electron-builder --win nsis",
+    "windows:public:build": "npm run build:web && electron-builder --config electron-builder.public.json --win nsis",
+    "cloudflare:db:create": "npx wrangler d1 create hazar-job",
+    "cloudflare:db:migrate": "npx wrangler d1 execute hazar-job --remote --file cloudflare/schema.sql",
+    "cloudflare:deploy": "npm run build:web && npx wrangler deploy",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@capacitor/app": "latest",
+    "@capacitor/core": "latest",
+    "@capacitor/splash-screen": "latest",
+    "@capacitor/status-bar": "latest",
+    "@vitejs/plugin-react": "^4.3.4",
+    "express": "^4.21.2",
+    "framer-motion": "^11.15.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@capacitor/android": "latest",
+    "@capacitor/cli": "latest",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@types/express": "^5.0.0",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.2",
+    "electron": "latest",
+    "electron-builder": "latest",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.2",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.5"
+  },
+  "build": {
+    "appId": "com.hazarjob.desktop",
+    "productName": "Hazar-Job.com",
+    "directories": {
+      "output": "release/owner"
+    },
+    "electronDist": "release/electron-dist",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "icon": "public/hazar-logo.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "HazarJob-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Hazar-Job.com"
+    }
+  }
+}

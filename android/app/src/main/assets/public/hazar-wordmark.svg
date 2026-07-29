@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 240" role="img" aria-labelledby="title">
+  <title id="title">Hazar-Job.com</title>
+  <defs>
+    <linearGradient id="letters" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2153bd"/>
+      <stop offset=".55" stop-color="#071a63"/>
+      <stop offset="1" stop-color="#020936"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-40%" width="140%" height="180%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feFlood flood-color="#22baff" flood-opacity=".85"/>
+      <feComposite in2="blur" operator="in"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="920" height="240" rx="22" fill="#020611"/>
+  <text x="58" y="162" fill="url(#letters)" stroke="#53d7ff" stroke-width="3" filter="url(#glow)" font-family="Inter, Arial, sans-serif" font-size="154" font-weight="800">Hazar</text>
+  <text x="570" y="150" fill="#f4bd50" font-family="Inter, Arial, sans-serif" font-size="56" font-weight="700">JOB</text>
+  <text x="570" y="195" fill="#8db0cc" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="600">.COM</text>
+</svg>
