@@ -1,0 +1,78 @@
+name: Codex Integration
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  checks-and-codex:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install dependencies
+        run:  --include=dev
+      - name: Run lint
+        if: ${{ hashFiles('package.json') != '' }}
+        run: |
+          if npm run | grep -q "lint"; then
+            npm run lint
+          else
+            echo "No lint script found - skipping."
+          fi
+
+      - name: Run typecheck
+        if: ${{ hashFiles('package.json') != '' }}
+        run: |
+          if npm run | grep -q "typecheck"; then
+            npm run typecheck
+          else
+            echo "No typecheck script found - skipping."
+          fi
+
+      - name: Run tests
+        if: ${{ hashFiles('package.json') != '' }}
+        run: |
+          if npm run | grep -q "test"; then
+            npm test
+          else
+            echo "No test script found - skipping."
+          fi
+
+      - name: Run build
+        if: ${{ hashFiles('package.json') != '' }}
+        run: |
+          if npm run | grep -q "build"; then
+            npm run build
+          else
+            echo "No build script found - skipping."
+          fi
+
+      - name: Security audit
+        if: ${{ hashFiles('package-lock.json') != '' }}
+        run: npm audit --audit-level=high
+
+      - name: Verify Codex script
+        run: test -f scripts/run-codex.js
+
+      - name: Run Codex review
+        if: ${{ env.CODEX_API_KEY != '' }}
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+          CODEX_API_URL: ${{ secrets.CODEX_API_URL }}
+          CODEX_MODEL: ${{ secrets.CODEX_MODEL }}
+        run: node scripts/run-codex.js
