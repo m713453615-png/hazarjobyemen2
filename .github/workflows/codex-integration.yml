@@ -8,7 +8,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   checks-and-codex:
@@ -17,53 +17,46 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
       - name: Run lint
-        if: ${{ hashFiles('package.json') != '' }}
-        run: |
-          if npm run | grep -q "lint"; then
-            npm run lint
-          else
-            echo "No lint script found - skipping."
-          fi
+        run: npm run lint
 
       - name: Run typecheck
-        if: ${{ hashFiles('package.json') != '' }}
-        run: |
-          if npm run | grep -q "typecheck"; then
-            npm run typecheck
-          else
-            echo "No typecheck script found - skipping."
-          fi
+        run: npm run typecheck
 
       - name: Run tests
-        if: ${{ hashFiles('package.json') != '' }}
-        run: |
-          if npm run | grep -q "test"; then
-            npm test
-          else
-            echo "No test script found - skipping."
-          fi
+        run: npm test
 
       - name: Run build
-        if: ${{ hashFiles('package.json') != '' }}
-        run: |
-          if npm run | grep -q "build"; then
-            npm run build
-          else
-            echo "No build script found - skipping."
-          fi
+        run: npm run build
 
-      - name: Security audit
-        if: ${{ hashFiles('package-lock.json') != '' }}
+      - name: Verify the public build hides the owner console
+        run: |
+          # These markers only exist inside the owner screens, never in the translation table.
+          for marker in "حساب المالك الرئيسي" "مراجعة إثبات الدفع" "أرشفتها على جهازك" "توظيف ناجح"; do
+            if grep -q "$marker" dist/assets/*.js; then
+              echo "::error::The public bundle still contains the owner screen: $marker"
+              exit 1
+            fi
+          done
+          echo "Public bundle is free of owner-only screens."
+
+      - name: Security audit of the shipped dependencies
+        run: npm run audit:prod
+
+      - name: Report on the development dependencies
+        continue-on-error: true
         run: npm audit --audit-level=high
 
       - name: Verify Codex script
