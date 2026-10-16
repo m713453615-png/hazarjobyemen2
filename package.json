@@ -25,7 +25,14 @@
     "cloudflare:db:migrate": "npx wrangler d1 execute hazar-job --remote --file cloudflare/schema.sql",
     "cloudflare:deploy": "npm run build:web && npx wrangler deploy",
     "lint": "eslint .",
+    "typecheck": "tsc -b && tsc -p tsconfig.check.json",
+    "test": "node --import tsx scripts/run-tests.mjs",
+    "check": "npm run lint && npm run typecheck && npm run test",
+    "audit:prod": "npm audit --omit=dev --audit-level=high",
     "preview": "vite preview"
+  },
+  "engines": {
+    "node": ">=22.22.2"
   },
   "dependencies": {
     "@capacitor/app": "latest",
@@ -42,19 +49,24 @@
   "devDependencies": {
     "@capacitor/android": "latest",
     "@capacitor/cli": "latest",
+    "@types/express": "^5.0.0",
+    "@types/jsdom": "^30.0.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
-    "@types/express": "^5.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.71.2",
+    "@typescript-eslint/parser": "^8.71.2",
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.1.2",
     "electron": "latest",
     "electron-builder": "latest",
+    "eslint": "^8.48.0",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "jsdom": "^30.1.3",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.2",
     "typescript": "~5.6.2",
-    "vite": "^6.0.5",
-    "eslint": "^8.48.0"
+    "vite": "^6.0.5"
   },
   "build": {
     "appId": "com.hazarjob.desktop",

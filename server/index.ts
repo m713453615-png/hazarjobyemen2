@@ -1,8 +1,8 @@
 import express from 'express'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { initialApplicants, jobs as seedJobs, type Applicant, type Job } from '../src/data'
+import { initialApplicants, jobs as seedJobs, type Applicant, type CompanyLicense, type Job } from '../src/data'
 
 type PublicSettings = {
   platformNameAr: string
@@ -18,6 +18,7 @@ type PublicSettings = {
 type StoredState = {
   jobs: Job[]
   applicants: Applicant[]
+  licenses: CompanyLicense[]
   settings: PublicSettings
   updatedAt: string
 }
@@ -25,10 +26,12 @@ type StoredState = {
 const app = express()
 const port = Number(process.env.PORT || 8787)
 const dataFile = process.env.HAZAR_DATA_FILE || join(dirname(fileURLToPath(import.meta.url)), 'hazar-data.json')
+const ownerToken = (process.env.HAZAR_OWNER_TOKEN || '').trim()
 
 const initialState: StoredState = {
   jobs: structuredClone(seedJobs),
   applicants: structuredClone(initialApplicants),
+  licenses: [],
   settings: {
     platformNameAr: 'هازار للوظائف',
     platformNameEn: 'Hazar-Job.com',
@@ -50,11 +53,21 @@ function loadState(): StoredState {
   }
 }
 
-let state = loadState()
+const state = loadState()
 
 function persist() {
   state.updatedAt = new Date().toISOString()
   writeFileSync(dataFile, JSON.stringify(state, null, 2), 'utf8')
+}
+
+/**
+ * Owner-only endpoints (publish, delete, settings) require the owner sync key,
+ * exactly like the Cloudflare Worker. When no key is configured the local
+ * development server stays open so the owner console keeps working offline.
+ */
+function isOwnerAuthorized(req: express.Request): boolean {
+  if (!ownerToken) return true
+  return req.headers.authorization === `Bearer ${ownerToken}`
 }
 
 app.use((req, res, next) => {
@@ -89,6 +102,7 @@ app.post('/api/jobs', (req, res) => {
 })
 
 app.patch('/api/jobs/:id', (req, res) => {
+  if (!isOwnerAuthorized(req)) return res.status(401).json({ error: 'owner_authorization_required' })
   const id = Number(req.params.id)
   state.jobs = state.jobs.map(job => job.id === id ? { ...job, ...req.body, id } : job)
   persist()
@@ -96,6 +110,7 @@ app.patch('/api/jobs/:id', (req, res) => {
 })
 
 app.delete('/api/jobs/:id', (req, res) => {
+  if (!isOwnerAuthorized(req)) return res.status(401).json({ error: 'owner_authorization_required' })
   const id = Number(req.params.id)
   state.jobs = state.jobs.filter(job => job.id !== id)
   persist()
@@ -115,7 +130,50 @@ app.patch('/api/applicants/:id/status', (req, res) => {
 
 app.get('/api/settings', (_req, res) => res.json(state.settings))
 
+app.get('/api/licenses', (req, res) => {
+  if (!isOwnerAuthorized(req)) return res.status(401).json({ error: 'owner_authorization_required' })
+  res.json([...state.licenses].sort((a, b) => b.id - a.id))
+})
+
+app.get('/api/licenses/latest', (_req, res) => {
+  const latest = [...state.licenses].sort((a, b) => b.id - a.id)[0]
+  res.json(latest ?? null)
+})
+
+app.post('/api/licenses', (req, res) => {
+  const body = req.body as Partial<CompanyLicense>
+  if (!body.companyName?.trim() || !body.licenseNumber?.trim()) {
+    return res.status(400).json({ error: 'company_name_and_license_number_are_required' })
+  }
+  const license: CompanyLicense = {
+    id: Number(body.id) || Date.now(),
+    companyName: body.companyName.trim(),
+    legalType: body.legalType || 'شركة',
+    licenseNumber: body.licenseNumber.trim(),
+    imageData: body.imageData || '',
+    imageName: body.imageName || '',
+    submittedAt: body.submittedAt || new Date().toISOString().slice(0, 10),
+    status: 'review',
+    archived: false,
+  }
+  state.licenses = [license, ...state.licenses.filter(item => item.id !== license.id)]
+  persist()
+  res.status(201).json(license)
+})
+
+app.patch('/api/licenses/:id', (req, res) => {
+  if (!isOwnerAuthorized(req)) return res.status(401).json({ error: 'owner_authorization_required' })
+  const id = Number(req.params.id)
+  const current = state.licenses.find(item => item.id === id)
+  if (!current) return res.status(404).json({ error: 'license_not_found' })
+  const updated: CompanyLicense = { ...current, ...req.body, id }
+  state.licenses = state.licenses.map(item => item.id === id ? updated : item)
+  persist()
+  res.json(updated)
+})
+
 app.put('/api/settings', (req, res) => {
+  if (!isOwnerAuthorized(req)) return res.status(401).json({ error: 'owner_authorization_required' })
   state.settings = { ...state.settings, ...req.body }
   persist()
   res.json(state.settings)
@@ -134,6 +192,12 @@ app.post('/api/payments/verify', (req, res) => {
   res.json({ id: Date.now(), reference: req.body.reference, status: 'pending_owner_review' })
 })
 
-app.listen(port, () => {
-  console.log(`Hazar-Job.com API listening on http://localhost:${port}`)
-})
+const isEntrypoint = process.argv[1] ? resolve(process.argv[1]) === fileURLToPath(import.meta.url) : false
+
+if (isEntrypoint) {
+  app.listen(port, () => {
+    console.log(`Hazar-Job.com API listening on http://localhost:${port}`)
+  })
+}
+
+export { app }

@@ -7,8 +7,8 @@ import {
   SlidersHorizontal, Sparkles, Sun, Trash2, UploadCloud, UserCheck, Users,
   X, XCircle,
 } from 'lucide-react'
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react'
-import { initialApplicants, jobs as seedJobs, type Applicant, type AppStatus, type Job, type Role, type View } from './data'
+import { Dispatch, FormEvent, ReactNode, SetStateAction, forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
+import { initialApplicants, jobs as seedJobs, emptyCompanyLicense, type Applicant, type AppStatus, type CompanyLicense, type Job, type LicenseStatus, type Role, type View } from './data'
 import { archiveFile, deleteArchivedFile, downloadArchivedFile, listArchive, type ArchiveCategory, type ArchiveEntry } from './archive'
 import { apiRequest } from './api'
 import { type AppLanguage, useInterfaceLanguage } from './i18n'
@@ -19,28 +19,7 @@ const jobCategories = ['الصحة', 'التجارة', 'هندسة إلكترو�
 const yemenCities = ['أمانة العاصمة', 'صنعاء', 'عدن', 'تعز', 'الحديدة', 'إب', 'حضرموت', 'مأرب', 'ذمار', 'صعدة', 'حجة', 'عمران', 'المحويت', 'ريمة', 'البيضاء', 'الضالع', 'لحج', 'أبين', 'شبوة', 'الجوف', 'المهرة', 'سقطرى']
 const arabicMonths = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر']
 
-type LicenseStatus = 'not_submitted' | 'review' | 'approved' | 'rejected'
-type CompanyLicense = {
-  companyName: string
-  legalType: string
-  licenseNumber: string
-  imageData: string
-  imageName: string
-  submittedAt: string
-  status: LicenseStatus
-  archived: boolean
-}
-
-const emptyLicense: CompanyLicense = {
-  companyName: '',
-  legalType: 'شركة',
-  licenseNumber: '',
-  imageData: '',
-  imageName: '',
-  submittedAt: '',
-  status: 'not_submitted',
-  archived: false,
-}
+const emptyLicense: CompanyLicense = { ...emptyCompanyLicense }
 
 function stored<T>(key: string, fallback: T): T {
   try {
@@ -57,7 +36,8 @@ async function derivePasswordHash(password: string, salt: Uint8Array) {
   return btoa(String.fromCharCode(...new Uint8Array(bits)))
 }
 
-const ownerBuild = import.meta.env.VITE_OWNER_BUILD !== 'false'
+// The owner console is opt-in: a build that forgets to set the flag stays public.
+const ownerBuild = import.meta.env.VITE_OWNER_BUILD === 'true'
 const manualPaymentsEnabled = import.meta.env.VITE_MANUAL_PAYMENTS === 'true'
 const ownerPaymentMethod = import.meta.env.VITE_OWNER_PAYMENT_METHOD || ''
 const ownerPaymentRecipient = import.meta.env.VITE_OWNER_PAYMENT_RECIPIENT || ''
@@ -181,6 +161,18 @@ function App() {
       } catch {
         // Keep the bundled data available while the central service is offline.
       }
+      try {
+        const latest = await apiRequest<CompanyLicense | null>('/api/licenses/latest')
+        if (!active || !latest) return
+        setCompanyLicense(current => {
+          if (current.status === 'approved') return current
+          if (current.status === 'not_submitted') return { ...latest, imageData: latest.imageData || current.imageData }
+          if (current.id !== latest.id) return current
+          return { ...current, status: latest.status, archived: latest.archived || current.archived }
+        })
+      } catch {
+        // The license request is kept on the device until the service is reachable.
+      }
     }
     void sync()
     const interval = window.setInterval(() => void sync(), 12000)
@@ -266,25 +258,27 @@ function App() {
         ['feedback', <FileText />, 'Feedback'],
         ['privacy', <ShieldCheck />, 'الخصوصية والأمان'],
       ]
-      : [
-        ['admin', <Gauge />, 'مركز التحكم'],
-        ['moderation', <ShieldCheck />, 'الوظائف والمدفوعات'],
-        ['licenses', <Building2 />, 'تراخيص المنشآت'],
-        ['archive', <Archive />, 'أرشيف المستندات'],
-        ['feedback', <FileText />, 'رسائل Feedback'],
-        ['users', <Users />, 'المستخدمون'],
-        ['settings', <Settings />, 'إعدادات المنصة'],
-      ]
+      : ownerBuild
+        ? [
+          ['admin', <Gauge />, 'مركز التحكم'],
+          ['moderation', <ShieldCheck />, 'الوظائف والمدفوعات'],
+          ['licenses', <Building2 />, 'تراخيص المنشآت'],
+          ['archive', <Archive />, 'أرشيف المستندات'],
+          ['feedback', <FileText />, 'رسائل Feedback'],
+          ['users', <Users />, 'المستخدمون'],
+          ['settings', <Settings />, 'إعدادات المنصة'],
+        ]
+        : []
 
   const renderView = () => {
     if (role === 'seeker') {
       if (view === 'features') return <FeaturesPage />
       if (view === 'feedback') return <FeedbackPage ownerEmail={ownerEmail} onSubmit={item => setFeedbacks(list => [item, ...list])} notify={notify} />
       if (view === 'privacy') return <PrivacyPage />
-      if (view === 'applications') return <Applications jobs={allJobs} applied={applied} />
+      if (view === 'applications') return <Applications jobs={allJobs} applied={applied} applicants={applications} />
       if (view === 'saved') return <SavedJobs jobs={allJobs.filter(j => saved.includes(j.id))} onOpen={(id) => { setView('discover'); setExpanded(id) }} />
       if (view === 'alerts') return <Alerts notify={notify} />
-      return <Discover jobs={filteredJobs} expanded={expanded} setExpanded={setExpanded} saved={saved} applied={applied} onSave={toggleSaved} onApply={apply} search={search} setSearch={setSearch} city={city} setCity={setCity} type={type} setType={setType} cvReady={cvReady} parsing={parsing} onParseCv={parseCv} />
+      return <Discover jobs={filteredJobs} expanded={expanded} setExpanded={setExpanded} saved={saved} applied={applied} onSave={toggleSaved} onApply={apply} search={search} setSearch={setSearch} city={city} setCity={setCity} type={type} setType={setType} cvReady={cvReady} parsing={parsing} onParseCv={parseCv} notify={notify} />
     }
     if (role === 'employer') {
       if (view === 'features') return <FeaturesPage />
@@ -300,20 +294,25 @@ function App() {
       if (view === 'applicants') return <Applicants applicants={applications} jobs={allJobs} onSelect={setSelectedApplicant} onUpdate={updateApplicant} />
       return <EmployerDashboard jobs={allJobs} applicants={applications} goTo={setView} />
     }
-    if (view === 'moderation') return <OwnerViewShell onBack={() => setView('admin')}><Moderation jobs={allJobs} setJobs={setAllJobs} notify={notify} /></OwnerViewShell>
-    if (view === 'licenses') return <OwnerViewShell onBack={() => setView('admin')}><LicenseManagement license={companyLicense} setLicense={setCompanyLicense} notify={notify} /></OwnerViewShell>
-    if (view === 'archive') return <OwnerViewShell onBack={() => setView('admin')}><DocumentArchive notify={notify} /></OwnerViewShell>
-    if (view === 'feedback') return <OwnerViewShell onBack={() => setView('admin')}><FeedbackInbox feedbacks={feedbacks} notify={notify} /></OwnerViewShell>
-    if (view === 'users') return <OwnerViewShell onBack={() => setView('admin')}><UsersAdmin notify={notify} /></OwnerViewShell>
-    if (view === 'settings') return <PlatformSettings notify={notify} dark={dark} setDark={setDark} language={language} setLanguage={setLanguage} ownerName={ownerName} setOwnerName={setOwnerName} ownerEmail={ownerEmail} setOwnerEmail={setOwnerEmail} ownerEmailVerified={ownerEmailVerified} setOwnerEmailVerified={setOwnerEmailVerified} platformNameAr={platformNameAr} setPlatformNameAr={setPlatformNameAr} platformNameEn={platformNameEn} setPlatformNameEn={setPlatformNameEn} onBack={() => setView('admin')} />
-    return <OwnerDashboard jobs={allJobs} applicants={applications} goTo={setView} ownerName={ownerName} />
+    // The whole owner area is guarded by a build time flag, so the public bundle
+    // never carries the owner screens at all.
+    if (ownerBuild) {
+      if (view === 'moderation') return <OwnerViewShell onBack={() => setView('admin')}><Moderation jobs={allJobs} setJobs={setAllJobs} notify={notify} /></OwnerViewShell>
+      if (view === 'licenses') return <OwnerViewShell onBack={() => setView('admin')}><LicenseManagement license={companyLicense} setLicense={setCompanyLicense} notify={notify} /></OwnerViewShell>
+      if (view === 'archive') return <OwnerViewShell onBack={() => setView('admin')}><DocumentArchive notify={notify} /></OwnerViewShell>
+      if (view === 'feedback') return <OwnerViewShell onBack={() => setView('admin')}><FeedbackInbox feedbacks={feedbacks} notify={notify} /></OwnerViewShell>
+      if (view === 'users') return <OwnerViewShell onBack={() => setView('admin')}><UsersAdmin notify={notify} /></OwnerViewShell>
+      if (view === 'settings') return <PlatformSettings notify={notify} dark={dark} setDark={setDark} language={language} setLanguage={setLanguage} ownerName={ownerName} setOwnerName={setOwnerName} ownerEmail={ownerEmail} setOwnerEmail={setOwnerEmail} ownerEmailVerified={ownerEmailVerified} setOwnerEmailVerified={setOwnerEmailVerified} platformNameAr={platformNameAr} setPlatformNameAr={setPlatformNameAr} platformNameEn={platformNameEn} setPlatformNameEn={setPlatformNameEn} onBack={() => setView('admin')} />
+      return <OwnerDashboard jobs={allJobs} applicants={applications} goTo={setView} ownerName={ownerName} />
+    }
+    return <Discover jobs={filteredJobs} expanded={expanded} setExpanded={setExpanded} saved={saved} applied={applied} onSave={toggleSaved} onApply={apply} search={search} setSearch={setSearch} city={city} setCity={setCity} type={type} setType={setType} cvReady={cvReady} parsing={parsing} onParseCv={parseCv} notify={notify} />
   }
 
   return (
     <div className={dark ? 'app dark' : 'app'}>
       <aside className={`sidebar ${mobileMenu ? 'open' : ''}`}>
         <div className="side-head"><Logo nameAr={platformNameAr} nameEn={platformNameEn} /><button className="icon-button mobile-only" onClick={() => setMobileMenu(false)}><X /></button></div>
-        <div className="role-caption">{role === 'seeker' ? 'معاينة لوحة طالب العمل' : role === 'employer' ? 'معاينة لوحة صاحب العمل' : 'لوحة المالك الوحيد'}</div>
+        <div className="role-caption">{role === 'seeker' ? 'معاينة لوحة طالب العمل' : role === 'employer' ? 'معاينة لوحة صاحب العمل' : ownerBuild ? 'لوحة المالك الوحيد' : ''}</div>
         <nav>
           {navItems.map(([id, icon, label]) => (
             <button key={id as string} className={view === id ? 'active' : ''} onClick={() => { setView(id as View); setMobileMenu(false) }}>
@@ -374,6 +373,7 @@ type DiscoverProps = {
   cvReady: boolean
   parsing: boolean
   onParseCv: () => void
+  notify: (message: string) => void
 }
 
 function Discover(props: DiscoverProps) {
@@ -386,10 +386,15 @@ function Discover(props: DiscoverProps) {
   const [profileDocuments, setProfileDocuments] = useState<Record<string, string>>({})
   const saveProfileDocument = async (file: File | undefined, category: ArchiveCategory, label: string) => {
     if (!file) return
-    await archiveFile(file, category, 'طالب العمل')
+    try {
+      await archiveFile(file, category, 'طالب العمل')
+    } catch {
+      props.notify('تعذر حفظ الملف في الأرشيف المحلي، حاول مرة أخرى')
+      return
+    }
     setProfileDocuments(current => ({ ...current, [category]: file.name }))
     if (category === 'cv') props.onParseCv()
-    else alert(`تم حفظ ${label} في أرشيف المستندات الخاص بالتطبيق`)
+    else props.notify(`تم حفظ ${label} في أرشيف المستندات الخاص بالتطبيق`)
   }
   const visibleJobs = [...props.jobs]
     .filter(job => (category === 'الكل' || job.category === category) && job.match >= minimumMatch)
@@ -411,7 +416,7 @@ function Discover(props: DiscoverProps) {
           {props.cvReady && <div className="skills-line"><span>React</span><span>TypeScript</span><span>إدارة المشاريع</span><span>+9</span></div>}
         </div>
         <label className={`upload-button ${props.parsing ? 'loading' : ''}`}>
-          <input type="file" accept=".pdf,.doc,.docx" onChange={props.onParseCv} />
+          <input type="file" accept=".pdf,.doc,.docx" onChange={event => void saveProfileDocument(event.target.files?.[0], 'cv', 'السيرة الذاتية')} />
           {props.parsing ? <><span className="loader" /> جارٍ تحليل السيرة...</> : props.cvReady ? <><UploadCloud /> تحديث السيرة</> : <><UploadCloud /> ارفع سيرتك الآن</>}
         </label>
       </motion.section>
@@ -447,9 +452,21 @@ function Discover(props: DiscoverProps) {
   )
 }
 
-function JobCard({ job, open, saved, applied, onToggle, onSave, onApply }: { job: Job; open: boolean; saved: boolean; applied: boolean; onToggle: () => void; onSave: () => void; onApply: () => void }) {
+type JobCardProps = {
+  job: Job
+  open: boolean
+  saved: boolean
+  applied: boolean
+  onToggle: () => void
+  onSave: () => void
+  onApply: () => void
+}
+
+// AnimatePresence with the popLayout mode measures the outgoing card, so the
+// component has to forward its ref to the motion element.
+const JobCard = forwardRef<HTMLElement, JobCardProps>(function JobCard({ job, open, saved, applied, onToggle, onSave, onApply }, ref) {
   return (
-    <motion.article className={`job-card ${open ? 'expanded' : ''}`} layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+    <motion.article ref={ref} className={`job-card ${open ? 'expanded' : ''}`} layout initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
       <div className="job-main" onClick={onToggle}>
         <div className="company-logo" style={{ background: job.logoColor }}>{job.initials}</div>
         <div className="job-copy">
@@ -477,19 +494,31 @@ function JobCard({ job, open, saved, applied, onToggle, onSave, onApply }: { job
       </AnimatePresence>
     </motion.article>
   )
-}
+})
 
 function PageTitle({ eyebrow, title, text, action }: { eyebrow?: string; title: string; text: string; action?: ReactNode }) {
   return <div className="page-title"><div>{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h1>{title}</h1><p>{text}</p></div>{action}</div>
 }
 
-function Applications({ jobs, applied }: { jobs: Job[]; applied: number[] }) {
+function Applications({ jobs, applied, applicants }: { jobs: Job[]; applied: number[]; applicants: Applicant[] }) {
   const visible = jobs.filter(job => applied.includes(job.id))
+  const statusFor = (jobId: number): AppStatus => {
+    const related = applicants.filter(item => item.jobId === jobId)
+    if (!related.length) return 'review'
+    return related.reduce((latest, item) => (item.status === 'accepted' ? item : latest)).status
+  }
+  const counts = visible.reduce<Record<AppStatus, number>>((accumulator, job) => {
+    accumulator[statusFor(job.id)] += 1
+    return accumulator
+  }, { review: 0, accepted: 0, rejected: 0 })
   return (
     <>
       <PageTitle eyebrow="رحلتك المهنية" title="طلبات التوظيف" text="تابع حالة طلباتك وتحديثاتها من مكان واحد." />
-      <div className="status-summary"><div className="blue"><FileCheck2 /><strong>{visible.length}</strong><span>إجمالي الطلبات</span></div><div className="amber"><Clock3 /><strong>{visible.length}</strong><span>تحت المراجعة</span></div><div className="green"><CheckCircle2 /><strong>0</strong><span>تم قبولها</span></div></div>
-      {visible.length ? <div className="table-shell"><div className="table-head"><span>الوظيفة</span><span>تاريخ التقديم</span><span>نسبة التطابق</span><span>الحالة</span></div>{visible.map(job => <div className="table-row" key={job.id}><div className="table-job"><div className="company-logo small-logo" style={{ background: job.logoColor }}>{job.initials}</div><div><strong>{job.title}</strong><span>{job.company} · {job.city}</span></div></div><span>{job.posted}</span><MatchRing value={job.match} small /><span className="status-pill review"><Clock3 />تحت المراجعة</span></div>)}</div>
+      <div className="status-summary"><div className="blue"><FileCheck2 /><strong>{visible.length}</strong><span>إجمالي الطلبات</span></div><div className="amber"><Clock3 /><strong>{counts.review}</strong><span>تحت المراجعة</span></div><div className="green"><CheckCircle2 /><strong>{counts.accepted}</strong><span>تم قبولها</span></div></div>
+      {visible.length ? <div className="table-shell"><div className="table-head"><span>الوظيفة</span><span>تاريخ التقديم</span><span>نسبة التطابق</span><span>الحالة</span></div>{visible.map(job => {
+        const status = statusFor(job.id)
+        return <div className="table-row" key={job.id}><div className="table-job"><div className="company-logo small-logo" style={{ background: job.logoColor }}>{job.initials}</div><div><strong>{job.title}</strong><span>{job.company} · {job.city}</span></div></div><span>{job.posted}</span><MatchRing value={job.match} small /><span className={`status-pill ${status}`}>{status === 'accepted' ? <><CheckCircle2 />{statusText[status]}</> : status === 'rejected' ? <><XCircle />{statusText[status]}</> : <><Clock3 />{statusText[status]}</>}</span></div>
+      })}</div>
         : <EmptyState icon={<FileCheck2 />} title="لم تتقدم لأي وظيفة بعد" text="عندما ترسل أول طلب توظيف ستتمكن من متابعته هنا." />}
     </>
   )
@@ -520,10 +549,12 @@ function Alerts({ notify }: { notify: (message: string) => void }) {
 }
 
 function EmployerDashboard({ jobs, applicants, goTo }: { jobs: Job[]; applicants: Applicant[]; goTo: (view: View) => void }) {
+  const totalViews = jobs.reduce((sum, job) => sum + job.views, 0)
+  const averageMatch = jobs.length ? Math.round(jobs.reduce((sum, job) => sum + job.match, 0) / jobs.length) : 0
   return (
     <>
       <PageTitle eyebrow="الخميس، 16 يوليو 2026" title="مرحباً، فريق يمن تك" text="إليك آخر مستجدات وظائفك والمتقدمين اليوم." action={<button className="primary-button" onClick={() => goTo('post')}><Plus /> نشر وظيفة جديدة</button>} />
-      <div className="stats-grid"><Stat icon={<BriefcaseBusiness />} label="الوظائف النشطة" value="4" note="+1 هذا الشهر" /><Stat icon={<Users />} label="إجمالي المتقدمين" value="127" note="+18 هذا الأسبوع" tone="green" /><Stat icon={<Eye />} label="مرات الظهور" value="2,840" note="+12.5% عن الشهر الماضي" tone="gold" /><Stat icon={<Activity />} label="متوسط التطابق" value="84%" note="أعلى من متوسط المنصة" tone="violet" /></div>
+      <div className="stats-grid"><Stat icon={<BriefcaseBusiness />} label="الوظائف النشطة" value={jobs.length.toLocaleString('ar-YE')} note="وظيفة منشورة على المنصة" /><Stat icon={<Users />} label="إجمالي المتقدمين" value={applicants.length.toLocaleString('ar-YE')} note="طلب توظيف مسجل" tone="green" /><Stat icon={<Eye />} label="مرات الظهور" value={totalViews.toLocaleString('ar-YE')} note="مشاهدة لكل الوظائف" tone="gold" /><Stat icon={<Activity />} label="متوسط التطابق" value={`${averageMatch}%`} note="متوسط المنصة الحالي" tone="violet" /></div>
       <div className="dashboard-grid">
         <section className="panel"><div className="panel-head"><div><h2>وظائفك النشطة</h2><p>أداء آخر 30 يوماً</p></div><button onClick={() => goTo('post')}><Plus /></button></div><div className="active-jobs">{jobs.slice(0, 3).map(job => <div key={job.id}><div className="company-logo small-logo" style={{ background: job.logoColor }}>{job.initials}</div><div className="grow"><strong>{job.title}</strong><span>{job.city} · {job.type}</span></div><div className="mini-metric"><strong>{job.applicants}</strong><span>متقدم</span></div><div className="mini-metric"><strong>{job.views}</strong><span>مشاهدة</span></div><button onClick={() => goTo('applicants')} title="عرض المتقدمين"><MoreHorizontal /></button></div>)}</div></section>
         <section className="panel"><div className="panel-head"><div><h2>أفضل المتقدمين</h2><p>مرتّبون بالمطابقة الذكية</p></div><button className="text-button" onClick={() => goTo('applicants')}>عرض الكل</button></div><div className="top-applicants">{applicants.slice(0, 3).map(item => <div key={item.id}><div className="avatar">{item.name.slice(0, 2)}</div><div className="grow"><strong>{item.name}</strong><span>{item.title}</span></div><MatchRing value={item.match} small /></div>)}</div></section>
@@ -532,7 +563,7 @@ function EmployerDashboard({ jobs, applicants, goTo }: { jobs: Job[]; applicants
   )
 }
 
-function EmployerLicenseVerification({ license, setLicense, notify }: { license: CompanyLicense; setLicense: (license: CompanyLicense) => void; notify: (message: string) => void }) {
+function EmployerLicenseVerification({ license, setLicense, notify }: { license: CompanyLicense; setLicense: Dispatch<SetStateAction<CompanyLicense>>; notify: (message: string) => void }) {
   const [draft, setDraft] = useState<CompanyLicense>(license.status === 'not_submitted' ? license : { ...license })
   const [previewOpen, setPreviewOpen] = useState(false)
 
@@ -550,12 +581,26 @@ function EmployerLicenseVerification({ license, setLicense, notify }: { license:
     if (!draft.companyName.trim()) return notify('أدخل اسم الشركة أو المنشأة أو المشروع')
     if (!draft.licenseNumber.trim()) return notify('أدخل رقم الترخيص')
     if (!draft.imageData) return notify('أرفق صورة الترخيص')
-    const submitted = { ...draft, status: 'review' as LicenseStatus, submittedAt: '19 يوليو 2026', archived: false }
+    const submitted: CompanyLicense = {
+      ...draft,
+      id: draft.id || Date.now(),
+      status: 'review',
+      submittedAt: new Intl.DateTimeFormat('ar-YE', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date()),
+      archived: false,
+    }
     const blob = await fetch(draft.imageData).then(response => response.blob())
-    await archiveFile(new File([blob], draft.imageName || `license-${draft.licenseNumber}.jpg`, { type: blob.type }), 'license', draft.companyName)
+    try {
+      await archiveFile(new File([blob], draft.imageName || `license-${draft.licenseNumber}.jpg`, { type: blob.type }), 'license', draft.companyName)
+    } catch {
+      notify('تعذر حفظ نسخة الترخيص في الأرشيف المحلي، سيصل الطلب للمالك على أي حال')
+    }
     setLicense(submitted)
     setDraft(submitted)
     notify('تم إرسال الترخيص إلى مالك المنصة للمراجعة')
+    // The central service keeps the request so the owner can review it on any device.
+    void apiRequest<CompanyLicense>('/api/licenses', { method: 'POST', body: JSON.stringify(submitted) })
+      .then(record => setLicense(current => ({ ...current, id: record.id })))
+      .catch(() => undefined)
   }
 
   if (license.status === 'review') {
@@ -597,30 +642,64 @@ function LicensePreview({ license, title, onClose, actions }: { license: Company
   return <motion.div className="modal-wrap" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}><motion.div className="modal license-preview-modal" initial={{ scale: .96, y: 18 }} animate={{ scale: 1, y: 0 }} exit={{ scale: .96 }} onClick={event => event.stopPropagation()}><button className="modal-close" onClick={onClose}><X /></button><div className="license-preview-head"><ShieldCheck /><div><span className="eyebrow">وثيقة خاصة</span><h2>{title}</h2><p>{license.companyName || 'لم يُدخل اسم الجهة بعد'}</p></div></div><div className="license-preview-image">{license.imageData ? <img src={license.imageData} alt="صورة ترخيص المنشأة" /> : <EmptyState icon={<FileText />} title="لا توجد صورة" text="أرفق صورة الترخيص أولاً." />}</div><div className="license-preview-data"><div><span>اسم الجهة</span><strong>{license.companyName || '—'}</strong></div><div><span>نوع الجهة</span><strong>{license.legalType}</strong></div><div><span>رقم الترخيص</span><strong dir="ltr">{license.licenseNumber || '—'}</strong></div><div><span>تاريخ الإرسال</span><strong>{license.submittedAt || 'قبل الإرسال'}</strong></div></div>{actions && <div className="modal-actions">{actions}</div>}</motion.div></motion.div>
 }
 
-function LicenseManagement({ license, setLicense, notify }: { license: CompanyLicense; setLicense: (license: CompanyLicense) => void; notify: (message: string) => void }) {
+function LicenseManagement({ license, setLicense, notify }: { license: CompanyLicense; setLicense: Dispatch<SetStateAction<CompanyLicense>>; notify: (message: string) => void }) {
   const [previewOpen, setPreviewOpen] = useState(false)
-  const downloadImage = (archive = false) => {
-    if (!license.imageData) return notify('لا توجد صورة ترخيص لتنزيلها')
-    const extension = license.imageName.split('.').pop() || 'jpg'
+  const [licenses, setLicenses] = useState<CompanyLicense[]>([])
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      const records = await apiRequest<CompanyLicense[]>('/api/licenses')
+      setLicenses(records)
+    } catch {
+      // The central service is unreachable, fall back to the copy kept on this device.
+      setLicenses(license.status === 'not_submitted' ? [] : [license])
+    } finally {
+      setLoading(false)
+    }
+  }, [license])
+
+  useEffect(() => { void refresh() }, [refresh])
+
+  const selected = licenses.find(item => item.id === selectedId) ?? licenses[0] ?? null
+
+  const downloadImage = (target: CompanyLicense, archive = false) => {
+    if (!target.imageData) return notify('لا توجد صورة ترخيص لتنزيلها')
+    const extension = target.imageName.split('.').pop() || 'jpg'
     const link = document.createElement('a')
-    link.href = license.imageData
-    link.download = `${archive ? 'HazarJob-License-Archive' : 'HazarJob-License'}-${license.companyName}-${license.licenseNumber}.${extension}`
+    link.href = target.imageData
+    link.download = `${archive ? 'HazarJob-License-Archive' : 'HazarJob-License'}-${target.companyName}-${target.licenseNumber}.${extension}`
     document.body.appendChild(link)
     link.click()
     link.remove()
     if (archive) {
-      setLicense({ ...license, archived: true })
+      const updated = { ...target, archived: true }
+      setLicenses(list => list.map(item => item.id === updated.id ? updated : item))
+      setLicense(updated)
       notify('تم تنزيل صورة الترخيص وأرشفتها على جهازك')
     } else notify('تم تنزيل صورة الترخيص')
   }
-  const approve = () => { setLicense({ ...license, status: 'approved' }); notify(`تم توثيق ${license.companyName} وفتح لوحة صاحب العمل`) }
-  const reject = () => { setLicense({ ...license, status: 'rejected' }); setPreviewOpen(false); notify('تم رفض الطلب وإعادته لصاحب العمل للتصحيح') }
+
+  const decide = async (target: CompanyLicense, status: LicenseStatus) => {
+    const updated: CompanyLicense = { ...target, status }
+    setLicenses(list => list.map(item => item.id === updated.id ? updated : item))
+    setLicense(updated)
+    setPreviewOpen(false)
+    if (status === 'approved') notify(`تم توثيق ${target.companyName} وفتح لوحة صاحب العمل`)
+    else notify('تم رفض الطلب وإعادته لصاحب العمل للتصحيح')
+    void apiRequest(`/api/licenses/${target.id}`, { method: 'PATCH', body: JSON.stringify({ status }) }).catch(() => undefined)
+  }
+
+  const approve = () => { if (selected) void decide(selected, 'approved') }
+  const reject = () => { if (selected) void decide(selected, 'rejected') }
 
   return <>
-    <PageTitle eyebrow="توثيق أصحاب العمل" title="تراخيص المنشآت" text="عاين وثائق التسجيل واعتمد الجهات الموثوقة، ثم احتفظ بنسخة مؤرشفة على جهازك." />
-    {license.status === 'not_submitted' ? <EmptyState icon={<Building2 />} title="لا توجد طلبات توثيق حالياً" text="سيظهر هنا أول طلب ترخيص يرسله صاحب عمل جديد." /> :
-      <div className="license-admin-card"><div className="license-admin-thumb">{license.imageData ? <img src={license.imageData} alt="صورة الترخيص" /> : <FileText />}</div><div className="license-admin-info"><div><span className={`status-pill ${license.status === 'approved' ? 'accepted' : license.status === 'rejected' ? 'rejected' : 'review'}`}>{license.status === 'approved' ? 'معتمد' : license.status === 'rejected' ? 'مرفوض' : 'بانتظار المراجعة'}</span>{license.archived && <span className="status-pill accepted"><Archive /> مؤرشف على الجهاز</span>}</div><h2>{license.companyName}</h2><p>{license.legalType} · رقم الترخيص <b dir="ltr">{license.licenseNumber}</b></p><small>أُرسل في {license.submittedAt}</small></div><div className="license-admin-actions"><button className="view-button" onClick={() => setPreviewOpen(true)}><Eye /> معاينة</button><button className="secondary-button" onClick={() => downloadImage(false)}><Download /> تنزيل الصورة</button><button className="secondary-button" onClick={() => downloadImage(true)}><Archive /> أرشفة على جهازي</button>{license.status !== 'approved' && <button className="primary-button" onClick={approve}><Check /> موافقة وتوثيق</button>}{license.status !== 'rejected' && <button className="reject-action" onClick={reject}><XCircle /> رفض</button>}</div></div>}
-    <AnimatePresence>{previewOpen && <LicensePreview license={license} title="مراجعة ترخيص صاحب العمل" onClose={() => setPreviewOpen(false)} actions={<><button className="reject-action" onClick={reject}><XCircle /> رفض وإعادة للتصحيح</button><button className="secondary-button" onClick={() => downloadImage(true)}><Archive /> أرشفة الصورة</button><button className="primary-button" onClick={approve}><Check /> موافقة وتوثيق</button></>} />}</AnimatePresence>
+    <PageTitle eyebrow="توثيق أصحاب العمل" title="تراخيص المنشآت" text="عاين وثائق التسجيل واعتمد الجهات الموثوقة، ثم احتفظ بنسخة مؤرشفة على جهازك." action={<button className="secondary-button" onClick={() => void refresh()}><Archive /> تحديث القائمة</button>} />
+    {loading ? <div className="archive-loading"><span className="loader" /> جارٍ قراءة الطلبات...</div> : !licenses.length ? <EmptyState icon={<Building2 />} title="لا توجد طلبات توثيق حالياً" text="سيظهر هنا أول طلب ترخيص يرسله صاحب عمل جديد." /> :
+      <div className="license-list">{licenses.map(item => <div className="license-admin-card" key={item.id}><div className="license-admin-thumb">{item.imageData ? <img src={item.imageData} alt="صورة الترخيص" /> : <FileText />}</div><div className="license-admin-info"><div><span className={`status-pill ${item.status === 'approved' ? 'accepted' : item.status === 'rejected' ? 'rejected' : 'review'}`}>{item.status === 'approved' ? 'معتمد' : item.status === 'rejected' ? 'مرفوض' : 'بانتظار المراجعة'}</span>{item.archived && <span className="status-pill accepted"><Archive /> مؤرشف على الجهاز</span>}</div><h2>{item.companyName}</h2><p>{item.legalType} · رقم الترخيص <b dir="ltr">{item.licenseNumber}</b></p><small>أُرسل في {item.submittedAt}</small></div><div className="license-admin-actions"><button className="view-button" onClick={() => { setSelectedId(item.id); setPreviewOpen(true) }}><Eye /> معاينة</button><button className="secondary-button" onClick={() => downloadImage(item, false)}><Download /> تنزيل الصورة</button><button className="secondary-button" onClick={() => downloadImage(item, true)}><Archive /> أرشفة على جهازي</button>{item.status !== 'approved' && <button className="primary-button" onClick={() => void decide(item, 'approved')}><Check /> موافقة وتوثيق</button>}{item.status !== 'rejected' && <button className="reject-action" onClick={() => void decide(item, 'rejected')}><XCircle /> رفض</button>}</div></div>)}</div>}
+    <AnimatePresence>{previewOpen && selected && <LicensePreview license={selected} title="مراجعة ترخيص صاحب العمل" onClose={() => setPreviewOpen(false)} actions={<><button className="reject-action" onClick={reject}><XCircle /> رفض وإعادة للتصحيح</button><button className="secondary-button" onClick={() => downloadImage(selected, true)}><Archive /> أرشفة الصورة</button><button className="primary-button" onClick={approve}><Check /> موافقة وتوثيق</button></>} />}</AnimatePresence>
   </>
 }
 
@@ -726,17 +805,19 @@ function ApplicantModal({ applicant, onClose, onUpdate }: { applicant: Applicant
 
 function OwnerDashboard({ jobs, applicants, goTo, ownerName }: { jobs: Job[]; applicants: Applicant[]; goTo: (view: View) => void; ownerName: string }) {
   const [showFullActivity, setShowFullActivity] = useState(false)
+  const pendingJobs = jobs.filter(job => !job.verified).length
+  const hiredApplicants = applicants.filter(item => item.status === 'accepted').length
   return (
     <>
       <div className="owner-hero"><div><span className="eyebrow"><ShieldCheck /> حساب المالك الرئيسي</span><h1>مركز قيادة هازار</h1><p>تحكم كامل بالمنصة والمحتوى والمستخدمين والمدفوعات من مكان واحد.</p></div><div className="system-live"><i /> جميع الأنظمة تعمل</div></div>
-      <div className="stats-grid owner-stats"><Stat icon={<CircleDollarSign />} label="إيرادات الشهر" value="1.24M ر.ي" note="+18.4% عن يونيو" tone="gold" /><Stat icon={<Users />} label="المستخدمون" value="8,492" note="+213 هذا الشهر" tone="blue" /><Stat icon={<BriefcaseBusiness />} label="إجمالي الوظائف" value="326" note={`${jobs.length} وظائف نشطة`} tone="green" /><Stat icon={<HeartHandshake />} label="توظيف ناجح" value="1,128" note="منذ إطلاق المنصة" tone="violet" /></div>
+      <div className="stats-grid owner-stats"><Stat icon={<CircleDollarSign />} label="إيرادات الشهر" value="1.24M ر.ي" note="+18.4% عن يونيو" tone="gold" /><Stat icon={<Users />} label="المستخدمون" value="8,492" note="+213 هذا الشهر" tone="blue" /><Stat icon={<BriefcaseBusiness />} label="إجمالي الوظائف" value={jobs.length.toLocaleString('ar-YE')} note={`${pendingJobs} بانتظار الاعتماد`} tone="green" /><Stat icon={<HeartHandshake />} label="توظيف ناجح" value={hiredApplicants.toLocaleString('ar-YE')} note={`${applicants.length.toLocaleString('ar-YE')} طلب توظيف`} tone="violet" /></div>
       <div className="admin-grid">
         <section className="panel revenue-panel"><div className="panel-head"><div><h2>نمو المنصة</h2><p>الوظائف والمتقدمون خلال 7 أشهر</p></div><select><option>آخر 7 أشهر</option></select></div><div className="chart">
           {[38, 49, 44, 61, 68, 76, 92].map((h, i) => <div key={i}><div className="bar applicants-bar" style={{ height: `${h}%` }} /><div className="bar jobs-bar" style={{ height: `${Math.max(20, h - 24)}%` }} /><span>{['ينا', 'فبر', 'مار', 'أبر', 'ماي', 'يون', 'يول'][i]}</span></div>)}
         </div><div className="chart-legend"><span><i className="blue-dot" /> المتقدمون</span><span><i className="gold-dot" /> الوظائف</span></div></section>
         <section className="panel quick-admin"><div className="panel-head"><div><h2>إجراءات عاجلة</h2><p>بانتظار تدخلك</p></div></div>
           <button onClick={() => goTo('moderation')}><span className="quick-icon amber"><ReceiptText /></span><div><strong>3 مدفوعات معلقة</strong><small>تحتاج تحققاً يدوياً</small></div><ArrowLeft /></button>
-          <button onClick={() => goTo('moderation')}><span className="quick-icon blue"><FileCheck2 /></span><div><strong>5 وظائف للمراجعة</strong><small>محتوى جديد قبل النشر</small></div><ArrowLeft /></button>
+          <button onClick={() => goTo('moderation')}><span className="quick-icon blue"><FileCheck2 /></span><div><strong>{pendingJobs.toLocaleString('ar-YE')} وظائف للمراجعة</strong><small>محتوى جديد قبل النشر</small></div><ArrowLeft /></button>
           <button onClick={() => goTo('users')}><span className="quick-icon red"><Users /></span><div><strong>بلاغان من المستخدمين</strong><small>أولوية متوسطة</small></div><ArrowLeft /></button>
         </section>
       </div>
@@ -986,9 +1067,28 @@ function PrivacyPage() {
 function DocumentArchive({ notify }: { notify: (message: string) => void }) {
   const [entries, setEntries] = useState<ArchiveEntry[]>([])
   const [loading, setLoading] = useState(true)
-  const refresh = async () => { setLoading(true); setEntries(await listArchive()); setLoading(false) }
-  useEffect(() => { void refresh() }, [])
-  const remove = async (id: string) => { await deleteArchivedFile(id); await refresh(); notify('تم حذف المستند من الأرشيف الخاص') }
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      setEntries(await listArchive())
+    } catch {
+      // The private archive is unavailable in this browser session.
+      setEntries([])
+      notify('تعذر قراءة الأرشيف المحلي على هذا المتصفح')
+    } finally {
+      setLoading(false)
+    }
+  }, [notify])
+  useEffect(() => { void refresh() }, [refresh])
+  const remove = async (id: string) => {
+    try {
+      await deleteArchivedFile(id)
+      await refresh()
+      notify('تم حذف المستند من الأرشيف الخاص')
+    } catch {
+      notify('تعذر حذف المستند من الأرشيف المحلي')
+    }
+  }
   const labels: Record<ArchiveCategory, string> = { license: 'ترخيص منشأة', cv: 'سيرة ذاتية', experience_certificate: 'شهادة خبرة', training_certificate: 'شهادة دورة' }
   return <><PageTitle eyebrow="ملفك الخاص" title="أرشيف المستندات" text="ملفات محفوظة داخل مساحة التطبيق على جهازك، ويمكن تنزيلها أو حذفها." action={<button className="secondary-button" onClick={() => void refresh()}><Archive /> تحديث الأرشيف</button>} />{loading ? <div className="archive-loading"><span className="loader" /> جارٍ قراءة الأرشيف...</div> : entries.length ? <div className="archive-list">{entries.map(entry => <article key={entry.id}><span className="archive-file-icon"><FileText /></span><div><span>{labels[entry.category]}</span><h2>{entry.name}</h2><p>{entry.owner} · {new Date(entry.createdAt).toLocaleDateString('ar-YE')}</p></div><button className="secondary-button" onClick={() => downloadArchivedFile(entry)}><Download /> تنزيل</button><button className="reject" onClick={() => void remove(entry.id)}><Trash2 /></button></article>)}</div> : <EmptyState icon={<Archive />} title="الأرشيف فارغ" text="ستظهر هنا التراخيص والسير الذاتية والشهادات التي يتم رفعها داخل التطبيق." />}</>
 }

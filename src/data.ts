@@ -19,6 +19,33 @@ export type View =
   | 'settings'
 export type AppStatus = 'review' | 'accepted' | 'rejected'
 
+export type LicenseStatus = 'not_submitted' | 'review' | 'approved' | 'rejected'
+
+/** A company license request created by an employer and reviewed by the owner. */
+export interface CompanyLicense {
+  id: number
+  companyName: string
+  legalType: string
+  licenseNumber: string
+  imageData: string
+  imageName: string
+  submittedAt: string
+  status: LicenseStatus
+  archived: boolean
+}
+
+export const emptyCompanyLicense: CompanyLicense = {
+  id: 0,
+  companyName: '',
+  legalType: 'شركة',
+  licenseNumber: '',
+  imageData: '',
+  imageName: '',
+  submittedAt: '',
+  status: 'not_submitted',
+  archived: false,
+}
+
 export interface Job {
   id: number
   title: string

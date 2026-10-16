@@ -5,8 +5,22 @@ export default defineConfig({
   plugins: [react()],
   base: './',
   server: {
+    // Bind on every interface so the sandbox preview can reach the dev server.
+    host: '0.0.0.0',
+    // The preview is served through a generated hostname, so the host header
+    // cannot be pinned to a fixed list here.
+    allowedHosts: true,
+    // The Capacitor assets are a copy of the build output, watching them only
+    // triggers useless reloads.
+    watch: {
+      ignored: ['**/android/app/src/main/assets/**', '**/dist/**', '**/release/**'],
+    },
     proxy: {
       '/api': 'http://localhost:8787',
     },
+  },
+  preview: {
+    host: '0.0.0.0',
+    allowedHosts: true,
   },
 })

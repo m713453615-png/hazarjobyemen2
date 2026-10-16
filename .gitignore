@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+release/
+build/
+out/
+*.tsbuildinfo
+
+# Local runtime data (the JSON file is written by the local API server)
+server/hazar-data.json
+server/*.local.json
+
+# Environment overrides that may contain secrets
+.env.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Cloudflare / Wrangler local state
+.wrangler/
+.dev.vars
+
+# Android build artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/capacitor-cordova-android-plugins/build/
+android/.idea/
+
+# Electron
+electron-dist/
+
+# Testing
+coverage/

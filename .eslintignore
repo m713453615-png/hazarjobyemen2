@@ -1,0 +1,11 @@
+node_modules
+dist
+release
+coverage
+*.tsbuildinfo
+
+# Generated Capacitor web assets are built output, not source.
+android/app/src/main/assets/public
+android/capacitor-cordova-android-plugins
+android/build
+android/app/build

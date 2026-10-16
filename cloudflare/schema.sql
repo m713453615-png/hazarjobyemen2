@@ -15,3 +15,9 @@ CREATE TABLE IF NOT EXISTS settings (
   payload TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS licenses (
+  id INTEGER PRIMARY KEY,
+  payload TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);

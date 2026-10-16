@@ -1,9 +1,16 @@
 import { initialApplicants, jobs as seedJobs } from '../src/data'
 
+type D1PreparedStatement = {
+  bind: (...values: unknown[]) => D1PreparedStatement
+  first: <T = Record<string, unknown>>() => Promise<T | null>
+  all: <T = Record<string, unknown>>() => Promise<{ results: T[] }>
+  run: () => Promise<unknown>
+}
+
 type Env = {
   DB: {
-    prepare: (query: string) => any
-    batch: (statements: any[]) => Promise<unknown>
+    prepare: (query: string) => D1PreparedStatement
+    batch: (statements: D1PreparedStatement[]) => Promise<unknown>
   }
   ASSETS: { fetch: (request: Request) => Promise<Response> }
   OWNER_API_TOKEN?: string
@@ -38,20 +45,20 @@ function authorized(request: Request, env: Env) {
 }
 
 async function ensureSeeded(env: Env) {
-  const jobCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM jobs').first()
+  const jobCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM jobs').first<{ count: number }>()
   if (Number(jobCount?.count || 0) === 0) {
     await env.DB.batch(seedJobs.map(job => env.DB.prepare('INSERT OR REPLACE INTO jobs (id, payload, updated_at) VALUES (?, ?, ?)').bind(job.id, JSON.stringify(job), new Date().toISOString())))
   }
-  const applicantCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM applicants').first()
+  const applicantCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM applicants').first<{ count: number }>()
   if (Number(applicantCount?.count || 0) === 0) {
     await env.DB.batch(initialApplicants.map(applicant => env.DB.prepare('INSERT OR REPLACE INTO applicants (id, payload, updated_at) VALUES (?, ?, ?)').bind(applicant.id, JSON.stringify(applicant), new Date().toISOString())))
   }
   await env.DB.prepare('INSERT OR IGNORE INTO settings (id, payload, updated_at) VALUES (1, ?, ?)').bind(JSON.stringify(defaultSettings), new Date().toISOString()).run()
 }
 
-async function rowsAsJson(env: Env, table: 'jobs' | 'applicants') {
-  const { results } = await env.DB.prepare(`SELECT payload FROM ${table} ORDER BY updated_at DESC`).all()
-  return results.map((row: { payload: string }) => JSON.parse(row.payload))
+async function rowsAsJson(env: Env, table: 'jobs' | 'applicants' | 'licenses') {
+  const { results } = await env.DB.prepare(`SELECT payload FROM ${table} ORDER BY updated_at DESC`).all<{ payload: string }>()
+  return results.map(row => JSON.parse(row.payload))
 }
 
 async function handleApi(request: Request, env: Env, url: URL) {
@@ -66,7 +73,7 @@ async function handleApi(request: Request, env: Env, url: URL) {
     const [jobs, applicants, settingsRow] = await Promise.all([
       rowsAsJson(env, 'jobs'),
       rowsAsJson(env, 'applicants'),
-      env.DB.prepare('SELECT payload FROM settings WHERE id = 1').first(),
+      env.DB.prepare('SELECT payload FROM settings WHERE id = 1').first<{ payload: string }>(),
     ])
     return json({
       jobs,
@@ -89,7 +96,7 @@ async function handleApi(request: Request, env: Env, url: URL) {
   if (jobMatch && request.method === 'PATCH') {
     if (!authorized(request, env)) return json({ error: 'owner_authorization_required' }, 401)
     const id = Number(jobMatch[1])
-    const current = await env.DB.prepare('SELECT payload FROM jobs WHERE id = ?').bind(id).first()
+    const current = await env.DB.prepare('SELECT payload FROM jobs WHERE id = ?').bind(id).first<{ payload: string }>()
     if (!current) return json({ error: 'job_not_found' }, 404)
     const job = { ...JSON.parse(current.payload), ...await request.json(), id }
     await env.DB.prepare('UPDATE jobs SET payload = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(job), new Date().toISOString(), id).run()
@@ -105,7 +112,7 @@ async function handleApi(request: Request, env: Env, url: URL) {
   const applicantMatch = url.pathname.match(/^\/api\/applicants\/(\d+)\/status$/)
   if (applicantMatch && request.method === 'PATCH') {
     const id = Number(applicantMatch[1])
-    const current = await env.DB.prepare('SELECT payload FROM applicants WHERE id = ?').bind(id).first()
+    const current = await env.DB.prepare('SELECT payload FROM applicants WHERE id = ?').bind(id).first<{ payload: string }>()
     if (!current) return json({ error: 'applicant_not_found' }, 404)
     const applicant = { ...JSON.parse(current.payload), ...await request.json(), id }
     await env.DB.prepare('UPDATE applicants SET payload = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(applicant), new Date().toISOString(), id).run()
@@ -113,13 +120,54 @@ async function handleApi(request: Request, env: Env, url: URL) {
   }
 
   if (url.pathname === '/api/settings' && request.method === 'GET') {
-    const row = await env.DB.prepare('SELECT payload FROM settings WHERE id = 1').first()
+    const row = await env.DB.prepare('SELECT payload FROM settings WHERE id = 1').first<{ payload: string }>()
     return json(row ? JSON.parse(row.payload) : defaultSettings)
+  }
+
+  if (url.pathname === '/api/licenses' && request.method === 'GET') {
+    if (!authorized(request, env)) return json({ error: 'owner_authorization_required' }, 401)
+    return json(await rowsAsJson(env, 'licenses'))
+  }
+
+  if (url.pathname === '/api/licenses/latest' && request.method === 'GET') {
+    const [latest] = await rowsAsJson(env, 'licenses')
+    return json(latest ?? null)
+  }
+
+  if (url.pathname === '/api/licenses' && request.method === 'POST') {
+    const body = await request.json() as Record<string, unknown>
+    if (!String(body.companyName ?? '').trim() || !String(body.licenseNumber ?? '').trim()) {
+      return json({ error: 'company_name_and_license_number_are_required' }, 400)
+    }
+    const license = {
+      id: Number(body.id) || Date.now(),
+      companyName: String(body.companyName).trim(),
+      legalType: String(body.legalType || 'شركة'),
+      licenseNumber: String(body.licenseNumber).trim(),
+      imageData: String(body.imageData || ''),
+      imageName: String(body.imageName || ''),
+      submittedAt: String(body.submittedAt || new Date().toISOString().slice(0, 10)),
+      status: 'review',
+      archived: false,
+    }
+    await env.DB.prepare('INSERT OR REPLACE INTO licenses (id, payload, updated_at) VALUES (?, ?, ?)').bind(license.id, JSON.stringify(license), new Date().toISOString()).run()
+    return json(license, 201)
+  }
+
+  const licenseMatch = url.pathname.match(/^\/api\/licenses\/(\d+)$/)
+  if (licenseMatch && request.method === 'PATCH') {
+    if (!authorized(request, env)) return json({ error: 'owner_authorization_required' }, 401)
+    const id = Number(licenseMatch[1])
+    const current = await env.DB.prepare('SELECT payload FROM licenses WHERE id = ?').bind(id).first<{ payload: string }>()
+    if (!current) return json({ error: 'license_not_found' }, 404)
+    const license = { ...JSON.parse(current.payload), ...await request.json(), id }
+    await env.DB.prepare('UPDATE licenses SET payload = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(license), new Date().toISOString(), id).run()
+    return json(license)
   }
 
   if (url.pathname === '/api/settings' && request.method === 'PUT') {
     if (!authorized(request, env)) return json({ error: 'owner_authorization_required' }, 401)
-    const current = await env.DB.prepare('SELECT payload FROM settings WHERE id = 1').first()
+    const current = await env.DB.prepare('SELECT payload FROM settings WHERE id = 1').first<{ payload: string }>()
     const settings = { ...(current ? JSON.parse(current.payload) : defaultSettings), ...await request.json() }
     await env.DB.prepare('INSERT OR REPLACE INTO settings (id, payload, updated_at) VALUES (1, ?, ?)').bind(JSON.stringify(settings), new Date().toISOString()).run()
     return json(settings)
