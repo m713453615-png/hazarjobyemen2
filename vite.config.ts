@@ -10,6 +10,11 @@ export default defineConfig({
     // The preview is served through a generated hostname, so the host header
     // cannot be pinned to a fixed list here.
     allowedHosts: true,
+    // The Capacitor assets are a copy of the build output, watching them only
+    // triggers useless reloads.
+    watch: {
+      ignored: ['**/android/app/src/main/assets/**', '**/dist/**', '**/release/**'],
+    },
     proxy: {
       '/api': 'http://localhost:8787',
     },
